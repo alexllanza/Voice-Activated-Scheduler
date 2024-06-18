@@ -1,0 +1,361 @@
+package VoiceAT;
+
+// Imports VAT/ sphinx
+import edu.cmu.sphinx.api.Configuration;
+import edu.cmu.sphinx.api.LiveSpeechRecognizer;
+import edu.cmu.sphinx.api.SpeechResult;
+
+// JFrame
+import javax.swing.*;
+import java.awt.*;
+
+// For the user inputs
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
+import java.util.HashSet;
+
+// Schedule class to store schedule details
+class Schedule {    
+    String name;
+    String month;
+    String day;
+    String time;
+    String frequency;
+
+    Schedule(String name, String month, String day, String time, String frequency) {
+        this.name = name;
+        this.month = month;
+        this.day = day;
+        this.time = time;
+        this.frequency = frequency;
+    }
+
+    @Override
+    public String toString() {
+        return "Name: " + name + ", Date: " + month + "/" + day + ", Time: " + time + ", Frequency: " + frequency;
+    }
+}
+
+// Main class for Voice Activated Scheduler
+public class VoiceActivatedScheduler extends JFrame {
+    private static final Map<String, Schedule> schedules = new HashMap<>();
+    private static LiveSpeechRecognizer recognizer;
+    private JTextArea textArea;
+    private JButton startButton;
+    private static final Map<String, String> timeMap = new HashMap<>();
+    private static final Set<String> validMonths = new HashSet<>();
+
+    // Boolean flags to track user choices
+    private boolean isAMChosen = false;
+    private boolean isDailyChosen = false;
+    private boolean isWeeklyChosen = false;
+    private boolean isMonthlyChosen = false;
+    private boolean isOnceChosen = false;
+    private Schedule lastAddedSchedule = null;  // To keep track of the last added schedule
+
+    // Constructor to initialize UI components
+    public VoiceActivatedScheduler() {
+        setTitle("Voice Activated Scheduler");
+        setSize(400, 300);
+        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        setLocationRelativeTo(null);
+
+        textArea = new JTextArea();
+        textArea.setEditable(false);
+        textArea.setFont(new Font("Monospaced", Font.PLAIN, 14));
+        JScrollPane scrollPane = new JScrollPane(textArea);
+
+        startButton = new JButton("Start Listening");
+        startButton.addActionListener(e -> {
+            new Thread(() -> {
+                setupVoiceRecognizer();
+                handleVoiceCommands();
+            }).start();
+        });
+
+        JPanel panel = new JPanel(new BorderLayout());
+        panel.add(scrollPane, BorderLayout.CENTER);
+        panel.add(startButton, BorderLayout.SOUTH);
+
+        add(panel);
+
+        initializeTimeMap();
+        initializeValidMonths();
+    }
+
+    // Initialize the time map for converting spoken time to actual time strings
+    private void initializeTimeMap() {
+        timeMap.put("one", "1:00");
+        timeMap.put("two", "2:00");
+        timeMap.put("three", "3:00");
+        timeMap.put("four", "4:00");
+        timeMap.put("five", "5:00");
+        timeMap.put("six", "6:00");
+        timeMap.put("seven", "7:00");
+        timeMap.put("eight", "8:00");
+        timeMap.put("nine", "9:00");
+        timeMap.put("ten", "10:00");
+        timeMap.put("eleven", "11:00");
+        timeMap.put("twelve", "12:00");
+    }
+
+    // Initialize the set of valid months
+    private void initializeValidMonths() {
+        String[] months = {"january", "february", "march", "april", "may", "june",
+                           "july", "august", "september", "october", "november", "december"};
+        for (String month : months) {
+            validMonths.add(month);
+        }
+    }
+
+    // Main method to launch the application
+    public static void main(String[] args) {
+        SwingUtilities.invokeLater(() -> {
+            VoiceActivatedScheduler frame = new VoiceActivatedScheduler();
+            frame.setVisible(true);
+        });
+    }
+
+    // Setup the voice recognizer configuration
+    private void setupVoiceRecognizer() {
+        try {
+            Configuration configuration = new Configuration();
+            configuration.setAcousticModelPath("resource:/edu/cmu/sphinx/models/en-us/en-us");
+            configuration.setDictionaryPath("resource:/edu/cmu/sphinx/models/en-us/cmudict-en-us.dict");
+            configuration.setLanguageModelPath("resource:/edu/cmu/sphinx/models/en-us/en-us.lm.bin");
+
+            recognizer = new LiveSpeechRecognizer(configuration);
+            recognizer.startRecognition(true);
+            appendText("Please Start speaking...");
+        } catch (Exception e) {
+            showError("Error setting up voice recognizer: " + e.getMessage());
+        }
+    }
+
+    // Handle the main voice commands loop
+    private void handleVoiceCommands() {
+        while (true) {
+            appendText("Would you like to add a schedule? (yes/no)");
+            String choice = getVoiceInput();
+
+            if (choice == null) continue;
+
+            // User's choices for answering questions
+            switch (choice.toLowerCase()) {
+                case "yes":
+                case "yeah":
+                case "yep":
+                case "ye":
+                    addSchedule();
+                    break;
+                case "no": 
+                case "nope":
+                    appendText("Do you want to retrieve your schedule? (yes/no)");
+                    handleRetrieveSchedule();
+                    break;
+                default:
+                    showError("Invalid option. Please say yes or no.");
+                    break;
+            }
+        }
+    }
+
+    // Handle retrieving the schedule
+    private void handleRetrieveSchedule() {
+        String retrieveChoice = getVoiceInput();
+        if (retrieveChoice != null) {
+            if (isYes(retrieveChoice)) {
+                if (lastAddedSchedule != null) {
+                    appendText("Last added schedule: " + lastAddedSchedule);
+                } else {
+                    appendText("No schedule has been added yet.");
+                }
+                deleteScheduleOption();
+            } else if (isNo(retrieveChoice)) {
+                deleteScheduleOption();
+            } else {
+                showError("Invalid option. Please say yes or no.");
+                handleRetrieveSchedule();
+            }
+        }
+    }
+
+    // Utility method to check if input is a positive response
+    private boolean isYes(String input) {
+        return input.equalsIgnoreCase("yes") || input.equalsIgnoreCase("yep")
+                || input.equalsIgnoreCase("yeah");
+    }
+
+    // Utility method to check if input is a negative response
+    private boolean isNo(String input) {
+        return input.equalsIgnoreCase("no") || input.equalsIgnoreCase("nope");
+    }
+
+    // Method to add a new schedule
+    private void addSchedule() {
+        appendText("Adding Schedule:");
+
+        String name = getVoiceInput("Please say schedule name: ");
+        String month = getVoiceInput("Please say the month: ");
+        while (!validMonths.contains(month.toLowerCase())) {
+            showError("Invalid month. Please try again.");
+            month = getVoiceInput("Please say the month: ");
+        }
+        String day = getVoiceInput("Please say the day: ");
+        String time = getVoiceInput("Please say the time (e.g., one, two, three): ");
+
+        if (!isAMChosen) {
+            String amPm = getVoiceInput("Is it AM? (yes/no): ");
+            if (isYes(amPm)) {
+                isAMChosen = true;
+            } else {
+                String isPm = getVoiceInput("Is it PM? (yes/no): ");
+                if (isYes(isPm)) {
+                    isAMChosen = true; // Set AM/PM choice here
+                }
+            }
+        }
+
+        // Frequency
+        if (!isDailyChosen) {
+            String frequencyDaily = getVoiceInput("Is this a daily schedule? (yes/no): ");
+            if (isYes(frequencyDaily)) {
+                isDailyChosen = true;
+            } else {
+                String frequencyWeekly = getVoiceInput("Is this a weekly schedule? (yes/no): ");
+                if (isYes(frequencyWeekly)) {
+                    isWeeklyChosen = true;
+                } else {
+                    String frequencyMonthly = getVoiceInput("Is this a monthly schedule? (yes/no): ");
+                    if (isYes(frequencyMonthly)) {
+                        isMonthlyChosen = true;
+                    } else {
+                        String frequencyOnce = getVoiceInput("Is this a once schedule? (yes/no): ");
+                        if (isYes(frequencyOnce)) {
+                            isOnceChosen = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Normalize time if user says "one" to "twelve"
+        time = normalizeTime(time);
+
+        String frequency;
+        if (isDailyChosen) {
+            frequency = "Daily";
+        } else if (isWeeklyChosen) {
+            frequency = "Weekly";
+        } else if (isMonthlyChosen) {
+            frequency = "Monthly";
+        } else if (isOnceChosen) {
+            frequency = "Once";
+        } else {
+            frequency = "Unknown";
+        }
+
+        Schedule schedule = new Schedule(name, month, day, time, frequency);
+        schedules.put(name, schedule);
+        lastAddedSchedule = schedule;  // Update last added schedule
+        appendText("Schedule added successfully!");
+
+        // Automatically show the added schedule
+        appendText("Do you want to retrieve your schedule? (yes/no)");
+        handleRetrieveSchedule();
+    }
+
+    // Method to handle the delete schedule option
+    private void deleteScheduleOption() {
+        appendText("Do you want to delete your schedule? (yes/no)");
+        String deleteChoice = getVoiceInput();
+
+        if (deleteChoice != null && isYes(deleteChoice)) {
+            deleteSchedule();
+        } else if (deleteChoice != null && isNo(deleteChoice)) {
+            appendText("Do you want to exit the program? (yes/no)");
+            handleExitProgram();
+        } else {
+            showError("Invalid option. Please say yes or no.");
+            deleteScheduleOption();
+        }
+    }
+
+    // Method to handle exiting the program
+    private void handleExitProgram() {
+        String exitChoice = getVoiceInput();
+        if (exitChoice != null) {
+            if (isYes(exitChoice)) {
+                appendText("Exiting...");
+                recognizer.stopRecognition();
+                System.exit(0);
+            } else if (isNo(exitChoice)) {
+                handleVoiceCommands();
+            } else {
+                showError("Invalid option. Please say yes or no.");
+                handleExitProgram();
+            }
+        }
+    }
+
+    // Method to delete a schedule
+    private void deleteSchedule() {
+        appendText("Deleting Schedule:");
+        String name = getVoiceInput("Please say schedule name to delete: ");
+
+        if (schedules.remove(name) != null) {
+            appendText("Schedule deleted successfully!");
+        } else {
+            appendText("Schedule not found.");
+            askRetryDelete();
+        }
+    }
+
+    // Ask if the user wants to retry deleting a schedule
+    private void askRetryDelete() {
+        appendText("Would you like to try again? (yes/no)");
+        String retryChoice = getVoiceInput();
+
+        if (retryChoice != null && isYes(retryChoice)) {
+            deleteSchedule();
+        } else if (retryChoice != null && isNo(retryChoice)) {
+            deleteScheduleOption();
+        } else {
+            showError("Invalid option. Please say yes or no.");
+            askRetryDelete();
+        }
+    }
+
+    // Get voice input and return as string
+    private String getVoiceInput() {
+        SpeechResult result = recognizer.getResult();
+        if (result != null) {
+            String hypothesis = result.getHypothesis();
+            appendText("You said: " + hypothesis);
+            return hypothesis.toLowerCase().trim();
+        }
+        return null;
+    }
+
+    // Get voice input with a prompt and return as string
+    private String getVoiceInput(String prompt) {
+        appendText(prompt);
+        return getVoiceInput();
+    }
+
+    // Append text to the text area
+    private void appendText(String text) {
+        SwingUtilities.invokeLater(() -> textArea.append(text + "\n"));
+    }
+
+    // Show error message in the text area
+    private void showError(String message) {
+        appendText("Error: " + message);
+    }
+
+    // Normalize time from spoken form to actual time string
+    private String normalizeTime(String timeInput) {
+        return timeMap.getOrDefault(timeInput.toLowerCase(), timeInput);
+    }
+}
